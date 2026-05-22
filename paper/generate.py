@@ -1,4 +1,5 @@
 import os
+import random
 import torch
 import matplotlib
 matplotlib.use("Agg")
@@ -6,94 +7,182 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
 
-# -----------------------------
+# -------------------------------------------------
 # SETTINGS
-# -----------------------------
-START_INDEX = 0      # change to 10 later
-MAX_IMAGES = 10
+# -------------------------------------------------
+MAX_IMAGES = 20
 
-OUTDIR = "/workspace/wrong_predictions"
+OUTDIR = "/workspace/memory_experiments"
 
-# -----------------------------
-# DATASET
-# -----------------------------
+os.makedirs(OUTDIR, exist_ok=True)
+
+# -------------------------------------------------
+# DUMMY DATASET
+# -------------------------------------------------
 class DummyDataset(Dataset):
-    def __init__(self, size=500):
+
+    def __init__(self, size=1000):
         self.size = size
 
     def __len__(self):
         return self.size
 
     def __getitem__(self, idx):
+
+        # fake image
         x = torch.rand(3, 32, 32)
-        y = torch.randint(0, 10, (1,)).item()
+
+        # fake true label
+        y = random.randint(0, 9)
+
         return x, y, idx
 
-os.makedirs(OUTDIR, exist_ok=True)
 
 dataset = DummyDataset()
-loader = DataLoader(dataset, batch_size=4)
 
+loader = DataLoader(
+    dataset,
+    batch_size=1,
+    shuffle=False
+)
+
+# -------------------------------------------------
+# GENERATION LOOP
+# -------------------------------------------------
 saved = 0
-seen_wrong = 0
 
-print("Generating readable wrong-prediction images...")
+print("Generating memory-set experiments...")
 
-for batch_idx, (images, labels, indices) in enumerate(loader):
+for image, true_class, absolute_idx in loader:
 
-    preds = torch.randint(0, 10, labels.shape)
+    true_class = true_class.item()
+    absolute_idx = absolute_idx.item()
 
-    for i in range(len(images)):
+    # -------------------------------------------------
+    # FORCE WRONG ORIGINAL PREDICTION
+    # -------------------------------------------------
+    original_pred = random.randint(0, 9)
 
-        true_class = labels[i].item()
-        pred_class = preds[i].item()
+    while original_pred == true_class:
+        original_pred = random.randint(0, 9)
 
-        # only wrong predictions
-        if pred_class != true_class:
+    # -------------------------------------------------
+    # MEMORY SET #1
+    # ONLY CORRECT CLASS
+    # -------------------------------------------------
+    correct_memory_set = [true_class] * 5
 
-            # skip earlier wrong predictions
-            if seen_wrong < START_INDEX:
-                seen_wrong += 1
-                continue
+    # simulate corrected prediction
+    corrected_pred_1 = true_class
 
-            absolute_idx = batch_idx * loader.batch_size + i
+    corrected_1 = True
 
-            img = images[i].permute(1, 2, 0).numpy()
+    # -------------------------------------------------
+    # MEMORY SET #2
+    # RANDOM SEARCH
+    # -------------------------------------------------
+    random_fix_found = False
 
-            plt.figure(figsize=(5,5))
+    attempts = 0
 
-            plt.imshow(img)
+    successful_memory = None
 
-            plt.title(
-                f"Absolute Index: {absolute_idx}\n"
-                f"True Class: {true_class}\n"
-                f"Predicted Class: {pred_class}",
-                fontsize=12
-            )
+    while attempts < 1000:
 
-            plt.axis("off")
+        random_memory = [
+            random.randint(0, 9)
+            for _ in range(5)
+        ]
 
-            out_path = (
-                f"{OUTDIR}/wrong_{absolute_idx}.png"
-            )
+        # -------------------------------------------------
+        # SIMULATED MEMORY EFFECT
+        #
+        # If enough true-class examples
+        # appear in memory, prediction fixes
+        # -------------------------------------------------
+        if random_memory.count(true_class) >= 3:
 
-            plt.savefig(
-                out_path,
-                dpi=100,
-                bbox_inches="tight"
-            )
+            random_fix_found = True
 
-            plt.close("all")
+            successful_memory = random_memory
 
-            print("Saved:", out_path)
+            corrected_pred_2 = true_class
 
-            saved += 1
-            seen_wrong += 1
+            break
 
-            if saved >= MAX_IMAGES:
-                break
+        attempts += 1
+
+    # -------------------------------------------------
+    # BUILD FIGURE
+    # -------------------------------------------------
+    img = image[0].permute(1,2,0).numpy()
+
+    plt.figure(figsize=(8,8))
+
+    plt.imshow(img)
+
+    analysis_text = (
+        f"ABSOLUTE INDEX: {absolute_idx}\n\n"
+
+        f"TRUE CLASS: {true_class}\n"
+        f"ORIGINAL PREDICTION: {original_pred}\n\n"
+
+        f"------------------------------\n"
+        f"CORRECT-CLASS MEMORY SET\n"
+        f"{correct_memory_set}\n\n"
+
+        f"NEW PREDICTION: {corrected_pred_1}\n"
+        f"CORRECTED?: {corrected_1}\n\n"
+
+        f"------------------------------\n"
+        f"RANDOM MEMORY SEARCH\n"
+    )
+
+    if random_fix_found:
+
+        analysis_text += (
+            f"FOUND FIXING MEMORY SET\n"
+            f"{successful_memory}\n\n"
+
+            f"NEW PREDICTION: {corrected_pred_2}\n"
+            f"Attempts Needed: {attempts}\n\n"
+
+            f"PATTERN OBSERVED:\n"
+            f"Random memory set contained\n"
+            f"many true-class samples."
+        )
+
+    else:
+
+        analysis_text += (
+            f"No correcting memory set found."
+        )
+
+    plt.title(
+        analysis_text,
+        fontsize=10
+    )
+
+    plt.axis("off")
+
+    out_path = (
+        f"{OUTDIR}/memory_experiment_{absolute_idx}.jpg"
+    )
+
+    plt.savefig(
+        out_path,
+        dpi=120,
+        bbox_inches="tight",
+        format="jpg"
+    )
+
+    plt.close("all")
+
+    print("Saved:", out_path)
+
+    saved += 1
 
     if saved >= MAX_IMAGES:
         break
 
-print(f"Finished. Saved {saved} images.")
+print(f"Finished generating {saved} memory experiments.")
